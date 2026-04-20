@@ -1583,6 +1583,7 @@ async fn fork_startup_context_then_first_turn_diff_snapshot() -> anyhow::Result<
             service_tier: None,
             collaboration_mode: Some(collaboration_mode),
             personality: None,
+            environments: None,
         })
         .await?;
 
@@ -2226,6 +2227,7 @@ async fn set_rate_limits_retains_previous_credits() {
         cwd: config.cwd.clone(),
         codex_home: config.codex_home.clone(),
         thread_name: None,
+        environment_selections: None,
         original_config_do_not_use: Arc::clone(&config),
         metrics_service_name: None,
         app_server_client_name: None,
@@ -2331,6 +2333,7 @@ async fn set_rate_limits_updates_plan_type_when_present() {
         cwd: config.cwd.clone(),
         codex_home: config.codex_home.clone(),
         thread_name: None,
+        environment_selections: None,
         original_config_do_not_use: Arc::clone(&config),
         metrics_service_name: None,
         app_server_client_name: None,
@@ -2784,6 +2787,7 @@ pub(crate) async fn make_session_configuration_for_tests() -> SessionConfigurati
         cwd: config.cwd.clone(),
         codex_home: config.codex_home.clone(),
         thread_name: None,
+        environment_selections: None,
         original_config_do_not_use: Arc::clone(&config),
         metrics_service_name: None,
         app_server_client_name: None,
@@ -3101,6 +3105,7 @@ async fn session_new_fails_when_zsh_fork_enabled_without_zsh_path() {
         cwd: config.cwd.clone(),
         codex_home: config.codex_home.clone(),
         thread_name: None,
+        environment_selections: None,
         original_config_do_not_use: Arc::clone(&config),
         metrics_service_name: None,
         app_server_client_name: None,
@@ -3202,6 +3207,7 @@ pub(crate) async fn make_session_and_context() -> (Session, TurnContext) {
         cwd: config.cwd.clone(),
         codex_home: config.codex_home.clone(),
         thread_name: None,
+        environment_selections: None,
         original_config_do_not_use: Arc::clone(&config),
         metrics_service_name: None,
         app_server_client_name: None,
@@ -3419,6 +3425,7 @@ async fn make_session_with_config_and_rx(
         cwd: config.cwd.clone(),
         codex_home: config.codex_home.clone(),
         thread_name: None,
+        environment_selections: None,
         original_config_do_not_use: Arc::clone(&config),
         metrics_service_name: None,
         app_server_client_name: None,
@@ -3967,6 +3974,7 @@ fn op_kind_distinguishes_turn_ops() {
             service_tier: None,
             collaboration_mode: None,
             personality: None,
+            environments: None,
         }
         .kind(),
         "override_turn_context"
@@ -4514,6 +4522,7 @@ pub(crate) async fn make_session_and_context_with_dynamic_tools_and_rx(
         cwd: config.cwd.clone(),
         codex_home: config.codex_home.clone(),
         thread_name: None,
+        environment_selections: None,
         original_config_do_not_use: Arc::clone(&config),
         metrics_service_name: None,
         app_server_client_name: None,
