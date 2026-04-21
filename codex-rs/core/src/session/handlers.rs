@@ -171,7 +171,7 @@ pub(super) async fn user_input_or_turn_inner(
                     personality,
                     app_server_client_name: None,
                     app_server_client_version: None,
-                    environment_selections: None,
+                    environments: None,
                 },
                 None,
                 environments,
@@ -1148,7 +1148,7 @@ pub(super) async fn submission_loop(
                             reasoning_summary: summary,
                             service_tier,
                             personality,
-                            environment_selections: environments,
+                            environments,
                             ..Default::default()
                         },
                     )
