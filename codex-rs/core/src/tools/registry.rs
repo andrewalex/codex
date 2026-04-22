@@ -11,11 +11,11 @@ use crate::memories::usage::emit_metric_for_tool_read;
 use crate::sandbox_tags::sandbox_tag;
 use crate::session::turn_context::TurnContext;
 use crate::tools::context::FunctionToolOutput;
-use crate::tools::context::ToolCallSource;
 use crate::tools::context::ToolInvocation;
 use crate::tools::context::ToolOutput;
 use crate::tools::context::ToolPayload;
 use crate::tools::hook_names::HookToolName;
+use crate::tools::tool_dispatch_trace::ToolDispatchTrace;
 use codex_hooks::HookEvent;
 use codex_hooks::HookEventAfterToolUse;
 use codex_hooks::HookPayload;
@@ -26,12 +26,6 @@ use codex_hooks::HookToolKind;
 use codex_protocol::models::ResponseInputItem;
 use codex_protocol::protocol::EventMsg;
 use codex_protocol::protocol::SandboxPolicy;
-use codex_rollout_trace::ExecutionStatus;
-use codex_rollout_trace::ToolDispatchInvocation;
-use codex_rollout_trace::ToolDispatchPayload;
-use codex_rollout_trace::ToolDispatchRequester;
-use codex_rollout_trace::ToolDispatchResult;
-use codex_rollout_trace::ToolDispatchTraceContext;
 use codex_tools::ConfiguredToolSpec;
 use codex_tools::ToolName;
 use codex_tools::ToolSpec;
@@ -231,117 +225,6 @@ pub struct ToolRegistry {
     handlers: HashMap<ToolName, Arc<dyn AnyToolHandler>>,
 }
 
-/// Keeps registry early-return paths paired with trace end events.
-///
-/// Trace schema policy lives in `codex-rollout-trace`; core only skips sources
-/// that are not canonical registry dispatches and adapts local objects into
-/// that API.
-struct DispatchTrace {
-    context: ToolDispatchTraceContext,
-}
-
-impl DispatchTrace {
-    fn new(invocation: &ToolInvocation) -> Self {
-        let context = invocation
-            .session
-            .services
-            .rollout_trace
-            .start_tool_dispatch_trace(tool_dispatch_invocation(invocation));
-        Self { context }
-    }
-
-    fn record_completed(&self, invocation: &ToolInvocation, result: &AnyToolResult) {
-        let Some(result_payload) = tool_dispatch_result(invocation, result) else {
-            return;
-        };
-        let status = if result.result.success_for_logging() {
-            ExecutionStatus::Completed
-        } else {
-            ExecutionStatus::Failed
-        };
-        self.context.record_completed(status, result_payload);
-    }
-
-    fn record_failed(&self, error: &FunctionCallError) {
-        self.context.record_failed(error);
-    }
-}
-
-fn tool_dispatch_invocation(invocation: &ToolInvocation) -> Option<ToolDispatchInvocation> {
-    let requester = match &invocation.source {
-        ToolCallSource::Direct => ToolDispatchRequester::Model {
-            model_visible_call_id: invocation.call_id.clone(),
-        },
-        ToolCallSource::CodeMode {
-            cell_id,
-            runtime_tool_call_id,
-        } => ToolDispatchRequester::CodeCell {
-            runtime_cell_id: cell_id.clone(),
-            runtime_tool_call_id: runtime_tool_call_id.clone(),
-        },
-        ToolCallSource::JsRepl => return None,
-    };
-
-    Some(ToolDispatchInvocation {
-        thread_id: invocation.session.conversation_id.to_string(),
-        codex_turn_id: invocation.turn.sub_id.clone(),
-        tool_call_id: invocation.call_id.clone(),
-        tool_name: invocation.tool_name.name.clone(),
-        tool_namespace: invocation.tool_name.namespace.clone(),
-        requester,
-        payload: tool_dispatch_payload(&invocation.payload),
-    })
-}
-
-fn tool_dispatch_result(
-    invocation: &ToolInvocation,
-    result: &AnyToolResult,
-) -> Option<ToolDispatchResult> {
-    match invocation.source {
-        ToolCallSource::Direct => Some(ToolDispatchResult::DirectResponse {
-            response_item: result
-                .result
-                .to_response_item(&result.call_id, &result.payload),
-        }),
-        ToolCallSource::CodeMode { .. } => Some(ToolDispatchResult::CodeModeResponse {
-            value: result.result.code_mode_result(&result.payload),
-        }),
-        ToolCallSource::JsRepl => None,
-    }
-}
-
-fn tool_dispatch_payload(payload: &ToolPayload) -> ToolDispatchPayload {
-    match payload {
-        ToolPayload::Function { arguments } => ToolDispatchPayload::Function {
-            arguments: arguments.clone(),
-        },
-        ToolPayload::ToolSearch { arguments } => ToolDispatchPayload::ToolSearch {
-            arguments: arguments.clone(),
-        },
-        ToolPayload::Custom { input } => ToolDispatchPayload::Custom {
-            input: input.clone(),
-        },
-        ToolPayload::LocalShell { params } => ToolDispatchPayload::LocalShell {
-            command: params.command.clone(),
-            workdir: params.workdir.clone(),
-            timeout_ms: params.timeout_ms,
-            sandbox_permissions: params.sandbox_permissions,
-            prefix_rule: params.prefix_rule.clone(),
-            additional_permissions: params.additional_permissions.clone(),
-            justification: params.justification.clone(),
-        },
-        ToolPayload::Mcp {
-            server,
-            tool,
-            raw_arguments,
-        } => ToolDispatchPayload::Mcp {
-            server: server.clone(),
-            tool: tool.clone(),
-            raw_arguments: raw_arguments.clone(),
-        },
-    }
-}
-
 impl ToolRegistry {
     fn new(handlers: HashMap<ToolName, Arc<dyn AnyToolHandler>>) -> Self {
         Self { handlers }
@@ -457,7 +340,7 @@ impl ToolRegistry {
             return Err(FunctionCallError::Fatal(message));
         }
 
-        let dispatch_trace = DispatchTrace::new(&invocation);
+        let dispatch_trace = ToolDispatchTrace::start(&invocation);
 
         if let Some(pre_tool_use_payload) = handler.pre_tool_use_payload(&invocation)
             && let Some(reason) = run_pre_tool_use_hooks(
@@ -600,7 +483,12 @@ impl ToolRegistry {
                 let result = guard.take().ok_or_else(|| {
                     FunctionCallError::Fatal("tool produced no output".to_string())
                 })?;
-                dispatch_trace.record_completed(&invocation, &result);
+                dispatch_trace.record_completed(
+                    &invocation,
+                    &result.call_id,
+                    &result.payload,
+                    result.result.as_ref(),
+                );
                 Ok(result)
             }
             Err(err) => {

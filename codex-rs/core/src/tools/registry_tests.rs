@@ -4,6 +4,7 @@ use crate::session::tests::make_session_and_context;
 use crate::session::turn_context::TurnContext;
 use crate::tools::code_mode::CodeModeWaitHandler;
 use crate::tools::code_mode::WAIT_TOOL_NAME;
+use crate::tools::context::ToolCallSource;
 use crate::turn_diff_tracker::TurnDiffTracker;
 use codex_protocol::protocol::SessionSource;
 use codex_rollout_trace::RolloutTraceRecorder;
