@@ -106,7 +106,6 @@ impl RolloutTraceRecorder {
     ///
     /// This is public so integration tests in downstream crates can replay the
     /// exact bundle they produced without mutating process environment.
-    #[doc(hidden)]
     pub fn create_in_root_for_test(root: &Path, thread_id: ThreadId) -> anyhow::Result<Self> {
         Self::create_in_root(root, thread_id)
     }
@@ -164,7 +163,6 @@ impl RolloutTraceRecorder {
     /// Most production turn lifecycle wiring lives outside this PR layer, but
     /// trace-focused integration tests need a small explicit hook so reducer
     /// inputs remain valid without exercising the full session loop.
-    #[doc(hidden)]
     pub fn record_codex_turn_started(
         &self,
         thread_id: impl Into<AgentThreadId>,
