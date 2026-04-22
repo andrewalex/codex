@@ -7,6 +7,7 @@ use crate::tools::code_mode::WAIT_TOOL_NAME;
 use crate::tools::context::ToolCallSource;
 use crate::turn_diff_tracker::TurnDiffTracker;
 use codex_protocol::protocol::SessionSource;
+use codex_rollout_trace::ExecutionStatus;
 use codex_rollout_trace::RolloutTraceRecorder;
 use codex_rollout_trace::ThreadStartedTraceMetadata;
 use codex_rollout_trace::ToolCallRequester;
@@ -166,6 +167,71 @@ async fn dispatch_lifecycle_trace_skips_noncanonical_boundaries() -> anyhow::Res
         ToolCallSource::JsRepl,
     )
     .await
+}
+
+#[tokio::test]
+async fn dispatch_lifecycle_trace_records_unsupported_tool_failures() -> anyhow::Result<()> {
+    let temp = TempDir::new()?;
+    let (mut session, turn) = make_session_and_context().await;
+    attach_test_trace(&mut session, &turn, temp.path())?;
+
+    let registry = ToolRegistry::new(HashMap::new());
+    let session = Arc::new(session);
+    let turn = Arc::new(turn);
+
+    let result = registry
+        .dispatch_any(test_invocation(
+            session,
+            turn,
+            "unsupported-call",
+            "missing_tool",
+            ToolCallSource::Direct,
+            "{}",
+        ))
+        .await;
+
+    assert!(matches!(result, Err(FunctionCallError::RespondToModel(_))));
+    let replayed = codex_rollout_trace::replay_bundle(single_bundle_dir(temp.path())?)?;
+    let tool_call = &replayed.tool_calls["unsupported-call"];
+    assert_eq!(tool_call.execution.status, ExecutionStatus::Failed);
+    assert!(tool_call.raw_result_payload_id.is_some());
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn dispatch_lifecycle_trace_records_incompatible_payload_failures() -> anyhow::Result<()> {
+    let temp = TempDir::new()?;
+    let (mut session, turn) = make_session_and_context().await;
+    attach_test_trace(&mut session, &turn, temp.path())?;
+
+    let registry = ToolRegistry::new(HashMap::from([(
+        codex_tools::ToolName::plain("test_tool"),
+        Arc::new(TestHandler) as Arc<dyn AnyToolHandler>,
+    )]));
+    let session = Arc::new(session);
+    let turn = Arc::new(turn);
+
+    let result = registry
+        .dispatch_any(test_invocation_with_payload(
+            session,
+            turn,
+            "incompatible-call",
+            codex_tools::ToolName::plain("test_tool"),
+            ToolCallSource::Direct,
+            ToolPayload::Custom {
+                input: "{}".to_string(),
+            },
+        ))
+        .await;
+
+    assert!(matches!(result, Err(FunctionCallError::Fatal(_))));
+    let replayed = codex_rollout_trace::replay_bundle(single_bundle_dir(temp.path())?)?;
+    let tool_call = &replayed.tool_calls["incompatible-call"];
+    assert_eq!(tool_call.execution.status, ExecutionStatus::Failed);
+    assert!(tool_call.raw_result_payload_id.is_some());
+
+    Ok(())
 }
 
 async fn assert_dispatch_trace_skips(

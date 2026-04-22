@@ -305,6 +305,8 @@ impl ToolRegistry {
             }
         }
 
+        let dispatch_trace = ToolDispatchTrace::start(&invocation);
+
         let handler = match self.handler(&tool_name) {
             Some(handler) => handler,
             None => {
@@ -320,7 +322,9 @@ impl ToolRegistry {
                     mcp_server_ref,
                     mcp_server_origin_ref,
                 );
-                return Err(FunctionCallError::RespondToModel(message));
+                let err = FunctionCallError::RespondToModel(message);
+                dispatch_trace.record_failed(&err);
+                return Err(err);
             }
         };
 
@@ -337,10 +341,10 @@ impl ToolRegistry {
                 mcp_server_ref,
                 mcp_server_origin_ref,
             );
-            return Err(FunctionCallError::Fatal(message));
+            let err = FunctionCallError::Fatal(message);
+            dispatch_trace.record_failed(&err);
+            return Err(err);
         }
-
-        let dispatch_trace = ToolDispatchTrace::start(&invocation);
 
         if let Some(pre_tool_use_payload) = handler.pre_tool_use_payload(&invocation)
             && let Some(reason) = run_pre_tool_use_hooks(
