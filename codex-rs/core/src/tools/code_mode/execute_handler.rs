@@ -47,7 +47,7 @@ impl CodeModeExecuteHandler {
             .services
             .code_mode_service
             .execute(codex_code_mode::ExecuteRequest {
-                cell_id: Some(runtime_cell_id),
+                cell_id: runtime_cell_id,
                 tool_call_id: call_id,
                 enabled_tools,
                 source: args.code,

@@ -88,14 +88,9 @@ impl ToolHandler for CodeModeWaitHandler {
                         )
                         .record_ended(response);
                 }
-                handle_runtime_response(
-                    &exec,
-                    wait_response.into(),
-                    args.max_tokens,
-                    started_at,
-                )
-                .await
-                .map_err(FunctionCallError::RespondToModel)
+                handle_runtime_response(&exec, wait_response.into(), args.max_tokens, started_at)
+                    .await
+                    .map_err(FunctionCallError::RespondToModel)
             }
             _ => Err(FunctionCallError::RespondToModel(format!(
                 "{WAIT_TOOL_NAME} expects JSON arguments"

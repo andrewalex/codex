@@ -90,10 +90,7 @@ impl CodeModeService {
     }
 
     pub async fn execute(&self, request: ExecuteRequest) -> Result<RuntimeResponse, String> {
-        let cell_id = request
-            .cell_id
-            .clone()
-            .unwrap_or_else(|| self.allocate_cell_id());
+        let cell_id = request.cell_id.clone();
         let initial_yield_time_ms = request.yield_time_ms.unwrap_or(DEFAULT_EXEC_YIELD_TIME_MS);
         let (event_rx, runtime_tx, runtime_terminate_handle, control_rx, response_tx, response_rx) = {
             let mut sessions = self.inner.sessions.lock().await;
@@ -528,7 +525,7 @@ mod tests {
 
     fn execute_request(source: &str) -> ExecuteRequest {
         ExecuteRequest {
-            cell_id: None,
+            cell_id: "1".to_string(),
             tool_call_id: "call_1".to_string(),
             enabled_tools: Vec::new(),
             source: source.to_string(),

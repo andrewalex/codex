@@ -26,12 +26,11 @@ const EXIT_SENTINEL: &str = "__codex_code_mode_exit__";
 
 #[derive(Clone, Debug)]
 pub struct ExecuteRequest {
-    /// Runtime cell id to use for this execution.
+    /// Runtime cell id for this execution.
     ///
-    /// Hosts that need to trace work before JavaScript starts can allocate an id
-    /// first and pass it here. `None` keeps the service-owned allocation path
-    /// for callers that only need the id once a runtime response is returned.
-    pub cell_id: Option<String>,
+    /// Callers allocate this before execution so tracing, waits, and nested tool
+    /// calls can refer to the cell as soon as JavaScript starts.
+    pub cell_id: String,
     pub tool_call_id: String,
     pub enabled_tools: Vec<ToolDefinition>,
     pub source: String,
@@ -369,7 +368,7 @@ mod tests {
 
     fn execute_request(source: &str) -> ExecuteRequest {
         ExecuteRequest {
-            cell_id: None,
+            cell_id: "1".to_string(),
             tool_call_id: "call_1".to_string(),
             enabled_tools: Vec::new(),
             source: source.to_string(),
