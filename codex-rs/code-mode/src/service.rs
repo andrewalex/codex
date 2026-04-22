@@ -92,16 +92,16 @@ impl CodeModeService {
     pub async fn execute(&self, request: ExecuteRequest) -> Result<RuntimeResponse, String> {
         let cell_id = request.cell_id.clone();
         let initial_yield_time_ms = request.yield_time_ms.unwrap_or(DEFAULT_EXEC_YIELD_TIME_MS);
-        let (event_rx, runtime_tx, runtime_terminate_handle, control_rx, response_tx, response_rx) = {
+        let (event_tx, event_rx) = mpsc::unbounded_channel();
+        let (control_tx, control_rx) = mpsc::unbounded_channel();
+        let (response_tx, response_rx) = oneshot::channel();
+        let (runtime_tx, runtime_terminate_handle) = {
             let mut sessions = self.inner.sessions.lock().await;
             if sessions.contains_key(&cell_id) {
                 return Err(format!("exec cell {cell_id} already exists"));
             }
 
-            let (event_tx, event_rx) = mpsc::unbounded_channel();
             let (runtime_tx, runtime_terminate_handle) = spawn_runtime(request, event_tx)?;
-            let (control_tx, control_rx) = mpsc::unbounded_channel();
-            let (response_tx, response_rx) = oneshot::channel();
 
             // Keep the session registry locked through insertion so a
             // caller-owned cell id cannot race with another execute and replace
@@ -113,14 +113,7 @@ impl CodeModeService {
                     runtime_tx: runtime_tx.clone(),
                 },
             );
-            (
-                event_rx,
-                runtime_tx,
-                runtime_terminate_handle,
-                control_rx,
-                response_tx,
-                response_rx,
-            )
+            (runtime_tx, runtime_terminate_handle)
         };
 
         tokio::spawn(run_session_control(
