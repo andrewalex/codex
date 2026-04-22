@@ -78,13 +78,18 @@ impl ToolHandler for CodeModeWaitHandler {
                     // Only a live-cell wait can close a CodeCell. A missing
                     // cell is still an ordinary `wait` tool result, but there
                     // is no runtime object for the reducer to complete.
+                    let runtime_cell_id = match response {
+                        codex_code_mode::RuntimeResponse::Yielded { cell_id, .. }
+                        | codex_code_mode::RuntimeResponse::Terminated { cell_id, .. }
+                        | codex_code_mode::RuntimeResponse::Result { cell_id, .. } => cell_id,
+                    };
                     exec.session
                         .services
                         .rollout_trace
                         .code_cell_trace_context(
                             exec.session.conversation_id.to_string(),
                             exec.turn.sub_id.clone(),
-                            runtime_cell_id(response),
+                            runtime_cell_id,
                         )
                         .record_ended(response);
                 }
@@ -96,13 +101,5 @@ impl ToolHandler for CodeModeWaitHandler {
                 "{WAIT_TOOL_NAME} expects JSON arguments"
             ))),
         }
-    }
-}
-
-fn runtime_cell_id(response: &codex_code_mode::RuntimeResponse) -> &str {
-    match response {
-        codex_code_mode::RuntimeResponse::Yielded { cell_id, .. }
-        | codex_code_mode::RuntimeResponse::Terminated { cell_id, .. }
-        | codex_code_mode::RuntimeResponse::Result { cell_id, .. } => cell_id,
     }
 }
