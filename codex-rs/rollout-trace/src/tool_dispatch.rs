@@ -207,7 +207,7 @@ fn record_started(context: &EnabledToolDispatchTraceContext, invocation: ToolDis
     let tool_namespace = invocation.tool_namespace;
     let kind = dispatched_tool_kind(&tool_name, &invocation.payload);
     let label = dispatched_tool_label(&tool_name, tool_namespace.as_deref(), &invocation.payload);
-    let input_preview = Some(truncate_preview(&invocation.payload.log_payload()));
+    let input_preview = Some(invocation.payload.log_payload_preview());
     let payload = invocation.payload.into_json_payload();
     let request = DispatchedToolTraceRequest {
         tool_name: tool_name.as_str(),
@@ -304,13 +304,13 @@ fn dispatched_tool_label(
 }
 
 impl ToolDispatchPayload {
-    fn log_payload(&self) -> String {
+    fn log_payload_preview(&self) -> String {
         match self {
-            ToolDispatchPayload::Function { arguments } => arguments.clone(),
-            ToolDispatchPayload::ToolSearch { arguments } => arguments.query.clone(),
-            ToolDispatchPayload::Custom { input } => input.clone(),
-            ToolDispatchPayload::LocalShell { command, .. } => command.join(" "),
-            ToolDispatchPayload::Mcp { raw_arguments, .. } => raw_arguments.clone(),
+            ToolDispatchPayload::Function { arguments } => truncate_preview(arguments),
+            ToolDispatchPayload::ToolSearch { arguments } => truncate_preview(&arguments.query),
+            ToolDispatchPayload::Custom { input } => truncate_preview(input),
+            ToolDispatchPayload::LocalShell { command, .. } => truncate_preview(&command.join(" ")),
+            ToolDispatchPayload::Mcp { raw_arguments, .. } => truncate_preview(raw_arguments),
         }
     }
 
@@ -362,8 +362,9 @@ impl ToolDispatchPayload {
 
 fn truncate_preview(value: &str) -> String {
     const MAX_PREVIEW_CHARS: usize = 160;
-    let mut preview = value.chars().take(MAX_PREVIEW_CHARS).collect::<String>();
-    if value.chars().count() > MAX_PREVIEW_CHARS {
+    let mut chars = value.chars();
+    let mut preview = chars.by_ref().take(MAX_PREVIEW_CHARS).collect::<String>();
+    if chars.next().is_some() {
         preview.push_str("...");
     }
     preview
