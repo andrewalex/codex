@@ -101,23 +101,6 @@ pub async fn realtime_conversation_list_voices(sess: &Session, sub_id: String) {
 }
 
 pub async fn override_turn_context(sess: &Session, sub_id: String, updates: SessionSettingsUpdate) {
-    if let Some(environments) = updates.environments.as_ref()
-        && let Err(err) = Session::validate_turn_environment_selections(
-            &sess.services.environment_manager,
-            environments,
-        )
-    {
-        sess.send_event_raw(Event {
-            id: sub_id,
-            msg: EventMsg::Error(ErrorEvent {
-                message: err.to_string(),
-                codex_error_info: Some(CodexErrorInfo::BadRequest),
-            }),
-        })
-        .await;
-        return;
-    }
-
     if let Err(err) = sess.update_settings(updates).await {
         sess.send_event_raw(Event {
             id: sub_id,
@@ -188,7 +171,6 @@ pub(super) async fn user_input_or_turn_inner(
                     personality,
                     app_server_client_name: None,
                     app_server_client_version: None,
-                    environments: None,
                 },
                 None,
                 environments,
@@ -262,7 +244,7 @@ pub(super) async fn user_input_or_turn_inner(
     };
 
     let Ok(current_context) = sess
-        .new_turn_with_sub_id(sub_id.clone(), updates, environments)
+        .new_turn_with_sub_id(sub_id.clone(), updates, environments.into())
         .await
     else {
         // new_turn_with_sub_id already emits the error event.
@@ -1139,7 +1121,6 @@ pub(super) async fn submission_loop(
                     service_tier,
                     collaboration_mode,
                     personality,
-                    environments,
                 } => {
                     let collaboration_mode = if let Some(collab_mode) = collaboration_mode {
                         collab_mode
@@ -1165,7 +1146,6 @@ pub(super) async fn submission_loop(
                             reasoning_summary: summary,
                             service_tier,
                             personality,
-                            environments,
                             ..Default::default()
                         },
                     )

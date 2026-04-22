@@ -1,3 +1,4 @@
+use super::turn_context::TurnEnvironmentOverride;
 use super::*;
 use crate::config::ConfigBuilder;
 use crate::config::test_config;
@@ -783,7 +784,7 @@ async fn new_turn_refreshes_managed_network_proxy_for_sandbox_change() -> anyhow
                 sandbox_policy: Some(SandboxPolicy::DangerFullAccess),
                 ..Default::default()
             },
-            /*environments*/ None,
+            TurnEnvironmentOverride::Inherit,
         )
         .await?;
 
@@ -1583,7 +1584,6 @@ async fn fork_startup_context_then_first_turn_diff_snapshot() -> anyhow::Result<
             service_tier: None,
             collaboration_mode: Some(collaboration_mode),
             personality: None,
-            environments: None,
         })
         .await?;
 
@@ -2227,7 +2227,7 @@ async fn set_rate_limits_retains_previous_credits() {
         cwd: config.cwd.clone(),
         codex_home: config.codex_home.clone(),
         thread_name: None,
-        environments: None,
+        environments: Vec::new(),
         original_config_do_not_use: Arc::clone(&config),
         metrics_service_name: None,
         app_server_client_name: None,
@@ -2333,7 +2333,7 @@ async fn set_rate_limits_updates_plan_type_when_present() {
         cwd: config.cwd.clone(),
         codex_home: config.codex_home.clone(),
         thread_name: None,
-        environments: None,
+        environments: Vec::new(),
         original_config_do_not_use: Arc::clone(&config),
         metrics_service_name: None,
         app_server_client_name: None,
@@ -2787,7 +2787,7 @@ pub(crate) async fn make_session_configuration_for_tests() -> SessionConfigurati
         cwd: config.cwd.clone(),
         codex_home: config.codex_home.clone(),
         thread_name: None,
-        environments: None,
+        environments: Vec::new(),
         original_config_do_not_use: Arc::clone(&config),
         metrics_service_name: None,
         app_server_client_name: None,
@@ -3105,7 +3105,7 @@ async fn session_new_fails_when_zsh_fork_enabled_without_zsh_path() {
         cwd: config.cwd.clone(),
         codex_home: config.codex_home.clone(),
         thread_name: None,
-        environments: None,
+        environments: Vec::new(),
         original_config_do_not_use: Arc::clone(&config),
         metrics_service_name: None,
         app_server_client_name: None,
@@ -3185,6 +3185,10 @@ pub(crate) async fn make_session_and_context() -> (Session, TurnContext) {
             developer_instructions: None,
         },
     };
+    let default_environments = vec![TurnEnvironmentSelection {
+        environment_id: codex_exec_server::LOCAL_ENVIRONMENT_ID.to_string(),
+        cwd: config.cwd.clone(),
+    }];
     let session_configuration = SessionConfiguration {
         provider: config.model_provider.clone(),
         collaboration_mode,
@@ -3207,7 +3211,7 @@ pub(crate) async fn make_session_and_context() -> (Session, TurnContext) {
         cwd: config.cwd.clone(),
         codex_home: config.codex_home.clone(),
         thread_name: None,
-        environments: None,
+        environments: default_environments,
         original_config_do_not_use: Arc::clone(&config),
         metrics_service_name: None,
         app_server_client_name: None,
@@ -3324,6 +3328,10 @@ pub(crate) async fn make_session_and_context() -> (Session, TurnContext) {
             .skills_for_config(&skills_input, Some(Arc::clone(&skill_fs)))
             .await,
     );
+    let turn_environments = vec![TurnEnvironment {
+        environment: Arc::clone(&environment),
+        cwd: session_configuration.cwd.clone(),
+    }];
     let turn_context = Session::make_turn_context(
         conversation_id,
         Some(Arc::clone(&auth_manager)),
@@ -3338,7 +3346,7 @@ pub(crate) async fn make_session_and_context() -> (Session, TurnContext) {
         &models_manager,
         /*network*/ None,
         Some(environment),
-        /*environments*/ None,
+        turn_environments,
         session_configuration.cwd.clone(),
         "turn_id".to_string(),
         Arc::clone(&js_repl),
@@ -3403,6 +3411,10 @@ async fn make_session_with_config_and_rx(
             developer_instructions: None,
         },
     };
+    let default_environments = vec![TurnEnvironmentSelection {
+        environment_id: codex_exec_server::LOCAL_ENVIRONMENT_ID.to_string(),
+        cwd: config.cwd.clone(),
+    }];
     let session_configuration = SessionConfiguration {
         provider: config.model_provider.clone(),
         collaboration_mode,
@@ -3425,7 +3437,7 @@ async fn make_session_with_config_and_rx(
         cwd: config.cwd.clone(),
         codex_home: config.codex_home.clone(),
         thread_name: None,
-        environments: None,
+        environments: default_environments,
         original_config_do_not_use: Arc::clone(&config),
         metrics_service_name: None,
         app_server_client_name: None,
@@ -3974,7 +3986,6 @@ fn op_kind_distinguishes_turn_ops() {
             service_tier: None,
             collaboration_mode: None,
             personality: None,
-            environments: None,
         }
         .kind(),
         "override_turn_context"
@@ -4060,7 +4071,7 @@ async fn turn_environments_set_primary_environment() {
         .new_turn_with_sub_id(
             "sub-1".to_string(),
             SessionSettingsUpdate::default(),
-            Some(vec![TurnEnvironmentSelection {
+            TurnEnvironmentOverride::Explicit(vec![TurnEnvironmentSelection {
                 environment_id: "local".to_string(),
                 cwd: selected_cwd.clone(),
             }]),
@@ -4068,12 +4079,8 @@ async fn turn_environments_set_primary_environment() {
         .await
         .expect("turn should start");
 
-    let turn_environments = turn_context
-        .environments
-        .as_ref()
-        .expect("turn environments should be recorded");
+    let turn_environments = &turn_context.environments;
     assert_eq!(turn_environments.len(), 1);
-    assert_eq!(turn_environments[0].environment_id, "local");
     assert!(std::sync::Arc::ptr_eq(
         turn_context
             .environment
@@ -4083,6 +4090,54 @@ async fn turn_environments_set_primary_environment() {
     ));
     assert_eq!(turn_context.cwd.as_path(), selected_cwd.as_path());
     assert_eq!(turn_context.config.cwd.as_path(), selected_cwd.as_path());
+}
+
+#[tokio::test]
+async fn default_turn_uses_stored_thread_environments() {
+    let (session, _turn_context, _rx) = make_session_and_context_with_rx().await;
+    let selected_cwd =
+        AbsolutePathBuf::try_from(session.get_config().await.cwd.as_path().join("selected"))
+            .expect("absolute path");
+
+    {
+        let mut state = session.state.lock().await;
+        state.session_configuration.environments = vec![TurnEnvironmentSelection {
+            environment_id: "local".to_string(),
+            cwd: selected_cwd.clone(),
+        }];
+    }
+
+    let turn_context = session.new_default_turn().await;
+
+    let turn_environments = &turn_context.environments;
+    assert_eq!(turn_environments.len(), 1);
+    assert!(std::sync::Arc::ptr_eq(
+        turn_context
+            .environment
+            .as_ref()
+            .expect("primary environment should be set"),
+        &turn_environments[0].environment
+    ));
+    assert_eq!(turn_context.cwd, selected_cwd);
+    assert_eq!(turn_context.config.cwd, selected_cwd);
+}
+
+#[tokio::test]
+async fn default_turn_honors_empty_stored_thread_environments() {
+    let (session, _turn_context, _rx) = make_session_and_context_with_rx().await;
+    let session_cwd = session.get_config().await.cwd;
+
+    {
+        let mut state = session.state.lock().await;
+        state.session_configuration.environments = Vec::new();
+    }
+
+    let turn_context = session.new_default_turn().await;
+
+    assert!(turn_context.environment.is_none());
+    assert_eq!(turn_context.cwd, session_cwd);
+    assert_eq!(turn_context.config.cwd, session_cwd);
+    assert_eq!(turn_context.environments.len(), 0);
 }
 
 #[tokio::test]
@@ -4098,7 +4153,7 @@ async fn multiple_turn_environments_use_first_as_primary_environment() {
         .new_turn_with_sub_id(
             "sub-1".to_string(),
             SessionSettingsUpdate::default(),
-            Some(vec![
+            TurnEnvironmentOverride::Explicit(vec![
                 TurnEnvironmentSelection {
                     environment_id: "local".to_string(),
                     cwd: first_cwd.clone(),
@@ -4112,10 +4167,7 @@ async fn multiple_turn_environments_use_first_as_primary_environment() {
         .await
         .expect("turn should start");
 
-    let turn_environments = turn_context
-        .environments
-        .as_ref()
-        .expect("turn environments should be recorded");
+    let turn_environments = &turn_context.environments;
     assert_eq!(turn_environments.len(), 2);
     assert_eq!(turn_environments[0].cwd, first_cwd);
     assert_eq!(turn_environments[1].cwd, second_cwd);
@@ -4138,7 +4190,7 @@ async fn empty_turn_environments_clear_primary_environment() {
         .new_turn_with_sub_id(
             "sub-1".to_string(),
             SessionSettingsUpdate::default(),
-            Some(vec![]),
+            TurnEnvironmentOverride::Explicit(vec![]),
         )
         .await
         .expect("turn should start");
@@ -4146,14 +4198,7 @@ async fn empty_turn_environments_clear_primary_environment() {
     assert!(turn_context.environment.is_none());
     assert_eq!(turn_context.cwd, session.get_config().await.cwd);
     assert_eq!(turn_context.config.cwd, session.get_config().await.cwd);
-    assert_eq!(
-        turn_context
-            .environments
-            .as_ref()
-            .expect("turn environments should be recorded")
-            .len(),
-        0
-    );
+    assert_eq!(turn_context.environments.len(), 0);
 }
 
 #[tokio::test]
@@ -4164,7 +4209,7 @@ async fn unknown_turn_environment_returns_error() {
         .new_turn_with_sub_id(
             "sub-1".to_string(),
             SessionSettingsUpdate::default(),
-            Some(vec![TurnEnvironmentSelection {
+            TurnEnvironmentOverride::Explicit(vec![TurnEnvironmentSelection {
                 environment_id: "missing".to_string(),
                 cwd: session.get_config().await.cwd.clone(),
             }]),
@@ -4500,6 +4545,10 @@ pub(crate) async fn make_session_and_context_with_dynamic_tools_and_rx(
             developer_instructions: None,
         },
     };
+    let default_environments = vec![TurnEnvironmentSelection {
+        environment_id: codex_exec_server::LOCAL_ENVIRONMENT_ID.to_string(),
+        cwd: config.cwd.clone(),
+    }];
     let session_configuration = SessionConfiguration {
         provider: config.model_provider.clone(),
         collaboration_mode,
@@ -4522,7 +4571,7 @@ pub(crate) async fn make_session_and_context_with_dynamic_tools_and_rx(
         cwd: config.cwd.clone(),
         codex_home: config.codex_home.clone(),
         thread_name: None,
-        environments: None,
+        environments: default_environments,
         original_config_do_not_use: Arc::clone(&config),
         metrics_service_name: None,
         app_server_client_name: None,
@@ -4639,6 +4688,10 @@ pub(crate) async fn make_session_and_context_with_dynamic_tools_and_rx(
             .skills_for_config(&skills_input, Some(Arc::clone(&skill_fs)))
             .await,
     );
+    let turn_environments = vec![TurnEnvironment {
+        environment: Arc::clone(&environment),
+        cwd: session_configuration.cwd.clone(),
+    }];
     let turn_context = Arc::new(Session::make_turn_context(
         conversation_id,
         Some(Arc::clone(&auth_manager)),
@@ -4653,7 +4706,7 @@ pub(crate) async fn make_session_and_context_with_dynamic_tools_and_rx(
         &models_manager,
         /*network*/ None,
         Some(environment),
-        /*environments*/ None,
+        turn_environments,
         session_configuration.cwd.clone(),
         "turn_id".to_string(),
         Arc::clone(&js_repl),
