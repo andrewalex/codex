@@ -139,6 +139,14 @@ impl ToolDispatchTraceContext {
         }
     }
 
+    /// Returns whether caller-side result conversion would be recorded.
+    ///
+    /// Core uses this to avoid formatting or cloning tool outputs when the
+    /// dispatch lifecycle is suppressed or tracing is disabled.
+    pub fn is_enabled(&self) -> bool {
+        matches!(self.state, ToolDispatchTraceContextState::Enabled(_))
+    }
+
     /// Starts one dispatch-level lifecycle and returns the handle for its result.
     pub(crate) fn start(writer: Arc<TraceWriter>, invocation: ToolDispatchInvocation) -> Self {
         if suppresses_tool_dispatch_trace(&invocation) {

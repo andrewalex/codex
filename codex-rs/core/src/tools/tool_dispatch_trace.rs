@@ -27,7 +27,7 @@ impl ToolDispatchTrace {
             .session
             .services
             .rollout_trace
-            .start_tool_dispatch_trace(tool_dispatch_invocation(invocation));
+            .start_tool_dispatch_trace(|| tool_dispatch_invocation(invocation));
         Self { context }
     }
 
@@ -38,6 +38,10 @@ impl ToolDispatchTrace {
         payload: &ToolPayload,
         result: &dyn ToolOutput,
     ) {
+        if !self.context.is_enabled() {
+            return;
+        }
+
         let Some(result_payload) = tool_dispatch_result(invocation, call_id, payload, result)
         else {
             return;

@@ -217,14 +217,18 @@ impl RolloutTraceRecorder {
     }
 
     /// Starts one dispatch-level tool lifecycle and returns its trace handle.
+    ///
+    /// `invocation` is lazy because adapting core tool objects into trace-owned
+    /// payloads can clone large arguments. Disabled tracing should not pay that
+    /// cost on the hot tool-dispatch path.
     pub fn start_tool_dispatch_trace(
         &self,
-        invocation: Option<ToolDispatchInvocation>,
+        invocation: impl FnOnce() -> Option<ToolDispatchInvocation>,
     ) -> ToolDispatchTraceContext {
-        let Some(invocation) = invocation else {
+        let RolloutTraceRecorderState::Enabled(recorder) = &self.state else {
             return ToolDispatchTraceContext::disabled();
         };
-        let RolloutTraceRecorderState::Enabled(recorder) = &self.state else {
+        let Some(invocation) = invocation() else {
             return ToolDispatchTraceContext::disabled();
         };
 
