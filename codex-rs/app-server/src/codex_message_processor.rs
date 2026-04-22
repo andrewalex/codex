@@ -4405,6 +4405,19 @@ impl CodexMessageProcessor {
         };
 
         let history_cwd = thread_history.session_cwd();
+        let prefer_rollout_path_resume_response = path.is_some()
+            || model.is_some()
+            || model_provider.is_some()
+            || service_tier.is_some()
+            || cwd.is_some()
+            || approval_policy.is_some()
+            || approvals_reviewer.is_some()
+            || sandbox.is_some()
+            || permission_profile.is_some()
+            || request_overrides.is_some()
+            || base_instructions.is_some()
+            || developer_instructions.is_some()
+            || personality.is_some();
         let mut typesafe_overrides = self.build_thread_config_overrides(
             model,
             model_provider,
@@ -4418,7 +4431,7 @@ impl CodexMessageProcessor {
             developer_instructions,
             personality,
         );
-        let persisted_resume_metadata = self
+        let _persisted_resume_metadata = self
             .load_and_apply_persisted_resume_metadata(
                 &thread_history,
                 &mut request_overrides,
@@ -4491,7 +4504,7 @@ impl CodexMessageProcessor {
                         &response_history,
                         rollout_path.as_path(),
                         fallback_model_provider.as_str(),
-                        persisted_resume_metadata.as_ref(),
+                        prefer_rollout_path_resume_response,
                     )
                     .await
                 {
@@ -4814,12 +4827,9 @@ impl CodexMessageProcessor {
         path: Option<&PathBuf>,
     ) -> Option<StoredThread> {
         let result = if let Some(path) = path {
-            let Some(local_thread_store) = self
+            let local_thread_store = self
                 .local_thread_store_for_rollout_path(request_id.clone())
-                .await
-            else {
-                return None;
-            };
+                .await?;
             local_thread_store
                 .read_thread_by_rollout_path(
                     path.clone(),
@@ -4963,21 +4973,57 @@ impl CodexMessageProcessor {
         thread_history: &InitialHistory,
         rollout_path: &Path,
         fallback_provider: &str,
-        _persisted_resume_metadata: Option<&ThreadMetadata>,
+        prefer_rollout_path_response: bool,
     ) -> std::result::Result<Thread, String> {
         let thread = match thread_history {
-            InitialHistory::Resumed(resumed) => self
-                .thread_store
-                .read_thread(StoreReadThreadParams {
-                    thread_id: resumed.conversation_id,
-                    include_archived: true,
-                    include_history: false,
-                })
-                .await
-                .map(|stored_thread| {
-                    thread_from_stored_thread(stored_thread, fallback_provider, &self.config.cwd).0
-                })
-                .map_err(|err| format!("failed to read thread from store: {err}")),
+            InitialHistory::Resumed(resumed) => {
+                if prefer_rollout_path_response
+                    && self.thread_store.as_any().is::<LocalThreadStore>()
+                {
+                    read_summary_from_rollout(&resumed.rollout_path, fallback_provider)
+                        .await
+                        .map(|summary| summary_to_thread(summary, &self.config.cwd))
+                        .map_err(|err| {
+                            format!(
+                                "failed to load rollout `{}`: {err}",
+                                resumed.rollout_path.display()
+                            )
+                        })
+                } else {
+                    let stored_thread_result = self
+                        .thread_store
+                        .read_thread(StoreReadThreadParams {
+                            thread_id: resumed.conversation_id,
+                            include_archived: true,
+                            include_history: false,
+                        })
+                        .await;
+                    match stored_thread_result {
+                        Ok(stored_thread) => Ok(thread_from_stored_thread(
+                            stored_thread,
+                            fallback_provider,
+                            &self.config.cwd,
+                        )
+                        .0),
+                        Err(read_err) => {
+                            if !self.thread_store.as_any().is::<LocalThreadStore>() {
+                                return Err(format!(
+                                    "failed to read thread from store: {read_err}"
+                                ));
+                            }
+                            read_summary_from_rollout(&resumed.rollout_path, fallback_provider)
+                                .await
+                                .map(|summary| summary_to_thread(summary, &self.config.cwd))
+                                .map_err(|err| {
+                                    format!(
+                                        "failed to load rollout `{}`: {err}",
+                                        resumed.rollout_path.display()
+                                    )
+                                })
+                        }
+                    }
+                }
+            }
             InitialHistory::Forked(items) => {
                 let config_snapshot = thread.config_snapshot().await;
                 let mut thread = build_thread_from_snapshot(

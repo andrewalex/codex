@@ -2,6 +2,7 @@ use anyhow::Result;
 use app_test_support::ChatGptAuthFixture;
 use app_test_support::McpProcess;
 use app_test_support::create_apply_patch_sse_response;
+use app_test_support::create_fake_rollout;
 use app_test_support::create_fake_rollout_with_text_elements;
 use app_test_support::create_fake_rollout_with_token_usage;
 use app_test_support::create_final_assistant_message_sse_response;
@@ -1902,6 +1903,49 @@ async fn thread_resume_prefers_path_over_thread_id() -> Result<()> {
     } = to_response::<ThreadResumeResponse>(resume_resp)?;
     assert_eq!(resumed.id, thread.id);
     assert_eq!(resumed.path, thread.path);
+    assert_eq!(resumed.status, ThreadStatus::Idle);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn thread_resume_can_load_source_by_external_path() -> Result<()> {
+    let server = create_mock_responses_server_repeating_assistant("Done").await;
+    let codex_home = TempDir::new()?;
+    let external_home = TempDir::new()?;
+    create_config_toml(codex_home.path(), &server.uri())?;
+    let thread_id = create_fake_rollout(
+        external_home.path(),
+        "2025-01-05T12-00-00",
+        "2025-01-05T12:00:00Z",
+        "external path history",
+        Some("mock_provider"),
+        /*git_info*/ None,
+    )?;
+    let thread_path = rollout_path(external_home.path(), "2025-01-05T12-00-00", &thread_id);
+
+    let mut mcp = McpProcess::new(codex_home.path()).await?;
+    timeout(DEFAULT_READ_TIMEOUT, mcp.initialize()).await??;
+    let resume_id = mcp
+        .send_thread_resume_request(ThreadResumeParams {
+            thread_id: "not-a-valid-thread-id".to_string(),
+            path: Some(thread_path.clone()),
+            ..Default::default()
+        })
+        .await?;
+
+    let resume_resp: JSONRPCResponse = timeout(
+        DEFAULT_READ_TIMEOUT,
+        mcp.read_stream_until_response_message(RequestId::Integer(resume_id)),
+    )
+    .await??;
+    let ThreadResumeResponse {
+        thread: resumed, ..
+    } = to_response::<ThreadResumeResponse>(resume_resp)?;
+    let expected_thread_path = std::fs::canonicalize(&thread_path)?;
+    assert_eq!(resumed.id, thread_id);
+    assert_eq!(resumed.path, Some(expected_thread_path));
+    assert_eq!(resumed.preview, "external path history");
     assert_eq!(resumed.status, ThreadStatus::Idle);
 
     Ok(())
