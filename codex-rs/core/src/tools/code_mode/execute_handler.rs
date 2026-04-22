@@ -35,7 +35,7 @@ impl CodeModeExecuteHandler {
         // CodeCell before model-authored JavaScript issues nested tool calls.
         let runtime_cell_id = exec.session.services.code_mode_service.allocate_cell_id();
         let code_cell_trace = exec.session.services.rollout_trace.start_code_cell_trace(
-            exec.session.conversation_id.to_string(),
+            exec.session.conversation_id,
             exec.turn.sub_id.as_str(),
             runtime_cell_id.as_str(),
             call_id.as_str(),

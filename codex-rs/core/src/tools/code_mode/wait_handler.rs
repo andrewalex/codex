@@ -87,8 +87,8 @@ impl ToolHandler for CodeModeWaitHandler {
                         .services
                         .rollout_trace
                         .code_cell_trace_context(
-                            exec.session.conversation_id.to_string(),
-                            exec.turn.sub_id.clone(),
+                            exec.session.conversation_id,
+                            exec.turn.sub_id.as_str(),
                             runtime_cell_id,
                         )
                         .record_ended(response);
