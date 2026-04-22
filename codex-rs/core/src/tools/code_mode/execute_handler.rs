@@ -57,10 +57,12 @@ impl CodeModeExecuteHandler {
             })
             .await
             .map_err(FunctionCallError::RespondToModel)?;
-        // The initial response is the model-visible custom-tool return.
+        // Record the raw runtime boundary. The model-visible custom-tool output
+        // is produced by `handle_runtime_response` and later linked through
+        // `CodeCell.output_item_ids` in the reduced trace.
+        code_cell_trace.record_initial_response(&response);
         // Yielded cells keep running, so terminal lifecycle is only emitted
         // here when the first response also ended the runtime.
-        code_cell_trace.record_initial_response(&response);
         if !matches!(response, codex_code_mode::RuntimeResponse::Yielded { .. }) {
             code_cell_trace.record_ended(&response);
         }

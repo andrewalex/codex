@@ -43,8 +43,10 @@ struct EnabledCodeCellTraceContext {
 
 /// Raw code-mode response captured at the runtime boundary.
 ///
-/// The reducer keeps the graph compact and uses this payload as evidence for
-/// future viewers that need exact content items or stored-value details.
+/// This is not the model-visible custom-tool output. The reducer links that
+/// output through `CodeCell.output_item_ids` once the conversation item appears.
+/// Keeping the raw runtime payload here preserves stored-value and lifecycle
+/// evidence without duplicating the model-facing transcript.
 #[derive(Serialize)]
 struct CodeCellResponseTracePayload<'a> {
     response: &'a RuntimeResponse,
