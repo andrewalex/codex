@@ -47,28 +47,24 @@ pub struct WaitRequest {
     pub terminate: bool,
 }
 
+/// Result of waiting on a code-mode cell.
+///
+/// The wrapped `RuntimeResponse` is the model-facing wait result. The enum
+/// variant carries the extra lifecycle provenance that `RuntimeResponse` cannot:
+/// a failed real cell and a missing-cell wait both use
+/// `RuntimeResponse::Result { error_text: Some(..), .. }`, but only the former
+/// should be treated as a code-cell lifecycle event.
 #[derive(Debug, PartialEq)]
 pub enum WaitOutcome {
-    /// The requested cell was live when the wait command was accepted.
-    ///
-    /// Non-yielding responses from this variant are terminal lifecycle points
-    /// for the matching code cell.
+    /// The requested code cell was live when the wait command was accepted.
     LiveCell(RuntimeResponse),
-    /// The requested cell was not live, so the response is only the result of
-    /// the `wait` tool call. It must not be treated as a code-cell lifecycle
-    /// event because there is no cell to complete.
+    /// The requested code cell was not live.
     MissingCell(RuntimeResponse),
 }
 
-impl WaitOutcome {
-    pub fn into_runtime_response(self) -> RuntimeResponse {
-        match self {
-            WaitOutcome::LiveCell(response) | WaitOutcome::MissingCell(response) => response,
-        }
-    }
-
-    pub fn runtime_response(&self) -> &RuntimeResponse {
-        match self {
+impl From<WaitOutcome> for RuntimeResponse {
+    fn from(outcome: WaitOutcome) -> Self {
+        match outcome {
             WaitOutcome::LiveCell(response) | WaitOutcome::MissingCell(response) => response,
         }
     }
