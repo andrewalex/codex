@@ -281,7 +281,7 @@ impl ToolRouter {
 
         let direct_js_repl_call = tool_name.namespace.is_none()
             && matches!(tool_name.name.as_str(), "js_repl" | "js_repl_reset");
-        if matches!(source, ToolCallSource::Direct)
+        if matches!(&source, ToolCallSource::Direct)
             && turn.tools_config.js_repl_tools_only
             && !direct_js_repl_call
         {
