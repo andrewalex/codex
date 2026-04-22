@@ -5,7 +5,6 @@ use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 use async_trait::async_trait;
-use codex_protocol::ToolName;
 use serde_json::Value as JsonValue;
 use tokio::sync::Mutex;
 use tokio::sync::mpsc;
@@ -14,6 +13,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::warn;
 
 use crate::FunctionCallOutputContentItem;
+use crate::runtime::CodeModeNestedToolCall;
 use crate::runtime::DEFAULT_EXEC_YIELD_TIME_MS;
 use crate::runtime::ExecuteRequest;
 use crate::runtime::RuntimeCommand;
@@ -24,23 +24,11 @@ use crate::runtime::WaitOutcome;
 use crate::runtime::WaitRequest;
 use crate::runtime::spawn_runtime;
 
-/// Nested tool request emitted by one code-mode cell.
-///
-/// Code mode owns the per-cell runtime id. Hosts should preserve it for
-/// provenance/debugging, but should still assign their own runtime tool call id
-/// if their tool-call graph requires globally unique ids.
-pub struct CodeModeToolInvocation {
-    pub cell_id: String,
-    pub runtime_tool_call_id: String,
-    pub tool_name: ToolName,
-    pub input: Option<JsonValue>,
-}
-
 #[async_trait]
 pub trait CodeModeTurnHost: Send + Sync {
     async fn invoke_tool(
         &self,
-        invocation: CodeModeToolInvocation,
+        invocation: CodeModeNestedToolCall,
         cancellation_token: CancellationToken,
     ) -> Result<JsonValue, String>;
 
@@ -214,21 +202,12 @@ impl CodeModeService {
                             );
                         }
                     }
-                    TurnMessage::ToolCall {
-                        cell_id,
-                        id,
-                        name,
-                        input,
-                    } => {
+                    TurnMessage::ToolCall(invocation) => {
                         let host = Arc::clone(&host);
                         let inner = Arc::clone(&inner);
                         tokio::spawn(async move {
-                            let invocation = CodeModeToolInvocation {
-                                cell_id: cell_id.clone(),
-                                runtime_tool_call_id: id.clone(),
-                                tool_name: name,
-                                input,
-                            };
+                            let cell_id = invocation.cell_id.clone();
+                            let runtime_tool_call_id = invocation.runtime_tool_call_id.clone();
                             let response =
                                 host.invoke_tool(invocation, CancellationToken::new()).await;
                             let runtime_tx = inner
@@ -241,8 +220,14 @@ impl CodeModeService {
                                 return;
                             };
                             let command = match response {
-                                Ok(result) => RuntimeCommand::ToolResponse { id, result },
-                                Err(error_text) => RuntimeCommand::ToolError { id, error_text },
+                                Ok(result) => RuntimeCommand::ToolResponse {
+                                    id: runtime_tool_call_id,
+                                    result,
+                                },
+                                Err(error_text) => RuntimeCommand::ToolError {
+                                    id: runtime_tool_call_id,
+                                    error_text,
+                                },
                             };
                             let _ = runtime_tx.send(command);
                         });
@@ -411,12 +396,16 @@ async fn run_session_control(
                         }).await;
                     }
                     RuntimeEvent::ToolCall { id, name, input } => {
-                        let _ = inner.turn_message_tx.send(TurnMessage::ToolCall {
+                        let tool_call = CodeModeNestedToolCall {
                             cell_id: cell_id.clone(),
-                            id,
-                            name,
+                            runtime_tool_call_id: id,
+                            tool_name: name,
                             input,
-                        }).await;
+                        };
+                        let _ = inner
+                            .turn_message_tx
+                            .send(TurnMessage::ToolCall(tool_call))
+                            .await;
                     }
                     RuntimeEvent::Result {
                         stored_values,

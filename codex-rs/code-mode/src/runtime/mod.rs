@@ -92,14 +92,22 @@ pub enum RuntimeResponse {
     },
 }
 
+/// Nested tool request emitted by one code-mode cell.
+///
+/// Code mode owns the per-cell runtime id. Hosts should preserve it for
+/// provenance/debugging, but should still assign their own runtime tool call id
+/// if their tool-call graph requires globally unique ids.
+#[derive(Debug)]
+pub struct CodeModeNestedToolCall {
+    pub cell_id: String,
+    pub runtime_tool_call_id: String,
+    pub tool_name: ToolName,
+    pub input: Option<JsonValue>,
+}
+
 #[derive(Debug)]
 pub(crate) enum TurnMessage {
-    ToolCall {
-        cell_id: String,
-        id: String,
-        name: ToolName,
-        input: Option<JsonValue>,
-    },
+    ToolCall(CodeModeNestedToolCall),
     Notify {
         cell_id: String,
         call_id: String,

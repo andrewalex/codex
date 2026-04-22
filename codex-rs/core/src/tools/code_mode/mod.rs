@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
-use codex_code_mode::CodeModeToolInvocation;
+use codex_code_mode::CodeModeNestedToolCall;
 use codex_code_mode::CodeModeTurnHost;
 use codex_code_mode::RuntimeResponse;
 use codex_protocol::models::FunctionCallOutputContentItem;
@@ -128,7 +128,7 @@ struct CoreTurnHost {
 impl CodeModeTurnHost for CoreTurnHost {
     async fn invoke_tool(
         &self,
-        invocation: CodeModeToolInvocation,
+        invocation: CodeModeNestedToolCall,
         cancellation_token: CancellationToken,
     ) -> Result<JsonValue, String> {
         call_nested_tool(
@@ -310,10 +310,10 @@ async fn build_nested_router(exec: &ExecContext) -> ToolRouter {
 async fn call_nested_tool(
     exec: ExecContext,
     tool_runtime: ToolCallRuntime,
-    invocation: CodeModeToolInvocation,
+    invocation: CodeModeNestedToolCall,
     cancellation_token: CancellationToken,
 ) -> Result<JsonValue, FunctionCallError> {
-    let CodeModeToolInvocation {
+    let CodeModeNestedToolCall {
         cell_id,
         runtime_tool_call_id,
         tool_name,
