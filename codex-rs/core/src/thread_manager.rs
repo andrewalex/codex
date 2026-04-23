@@ -2,7 +2,8 @@ use crate::SkillsManager;
 use crate::agent::AgentControl;
 use crate::codex_thread::CodexThread;
 use crate::config::Config;
-use crate::default_thread_environment_selections;
+use crate::environment_selection::default_thread_environment_selections;
+use crate::environment_selection::selected_primary_environment;
 use crate::file_watcher::FileWatcher;
 use crate::mcp::McpManager;
 use crate::plugins::PluginsManager;
@@ -821,6 +822,7 @@ impl ThreadManagerState {
             /*metrics_service_name*/ None,
             /*inherited_shell_snapshot*/ None,
             /*inherited_exec_policy*/ None,
+            /*environments*/ None,
         ))
         .await
     }
@@ -835,9 +837,11 @@ impl ThreadManagerState {
         metrics_service_name: Option<String>,
         inherited_shell_snapshot: Option<Arc<ShellSnapshot>>,
         inherited_exec_policy: Option<Arc<crate::exec_policy::ExecPolicyManager>>,
+        environments: Option<Vec<TurnEnvironmentSelection>>,
     ) -> CodexResult<NewThread> {
-        let environments =
-            default_thread_environment_selections(self.environment_manager.as_ref(), &config.cwd);
+        let environments = environments.unwrap_or_else(|| {
+            default_thread_environment_selections(self.environment_manager.as_ref(), &config.cwd)
+        });
         Box::pin(self.spawn_thread_with_source(
             config,
             InitialHistory::New,
@@ -896,9 +900,11 @@ impl ThreadManagerState {
         persist_extended_history: bool,
         inherited_shell_snapshot: Option<Arc<ShellSnapshot>>,
         inherited_exec_policy: Option<Arc<crate::exec_policy::ExecPolicyManager>>,
+        environments: Option<Vec<TurnEnvironmentSelection>>,
     ) -> CodexResult<NewThread> {
-        let environments =
-            default_thread_environment_selections(self.environment_manager.as_ref(), &config.cwd);
+        let environments = environments.unwrap_or_else(|| {
+            default_thread_environment_selections(self.environment_manager.as_ref(), &config.cwd)
+        });
         Box::pin(self.spawn_thread_with_source(
             config,
             initial_history,
@@ -967,7 +973,8 @@ impl ThreadManagerState {
         environments: Vec<TurnEnvironmentSelection>,
         user_shell_override: Option<crate::shell::Shell>,
     ) -> CodexResult<NewThread> {
-        let environment = self.environment_manager.default_environment();
+        let environment =
+            selected_primary_environment(self.environment_manager.as_ref(), &environments)?;
         let watch_registration = match environment.as_ref() {
             Some(environment) if !environment.is_remote() => {
                 self.skills_watcher
