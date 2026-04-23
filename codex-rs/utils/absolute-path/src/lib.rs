@@ -24,19 +24,31 @@ pub struct AbsolutePathBuf(PathBuf);
 
 impl AbsolutePathBuf {
     fn maybe_expand_home_directory(path: &Path) -> PathBuf {
-        if let Some(path_str) = path.to_str()
-            && let Some(home) = home_dir()
-            && let Some(rest) = path_str.strip_prefix('~')
+        Self::maybe_expand_home_directory_with(path, home_dir)
+    }
+
+    fn maybe_expand_home_directory_with<F>(path: &Path, home_dir: F) -> PathBuf
+    where
+        F: FnOnce() -> Option<PathBuf>,
+    {
+        let Some(path_str) = path.to_str() else {
+            return path.to_path_buf();
+        };
+        let Some(rest) = path_str.strip_prefix('~') else {
+            return path.to_path_buf();
+        };
+        let Some(home) = home_dir() else {
+            return path.to_path_buf();
+        };
+
+        if rest.is_empty() {
+            return home;
+        } else if let Some(rest) = rest.strip_prefix('/') {
+            return home.join(rest.trim_start_matches('/'));
+        } else if cfg!(windows)
+            && let Some(rest) = rest.strip_prefix('\\')
         {
-            if rest.is_empty() {
-                return home;
-            } else if let Some(rest) = rest.strip_prefix('/') {
-                return home.join(rest.trim_start_matches('/'));
-            } else if cfg!(windows)
-                && let Some(rest) = rest.strip_prefix('\\')
-            {
-                return home.join(rest.trim_start_matches('\\'));
-            }
+            return home.join(rest.trim_start_matches('\\'));
         }
         path.to_path_buf()
     }
@@ -406,6 +418,25 @@ mod tests {
         let abs_path_buf =
             AbsolutePathBuf::resolve_path_against_base("./nested/../file.txt", base_dir);
         assert_eq!(abs_path_buf.as_path(), base_dir.join("file.txt").as_path());
+    }
+
+    #[test]
+    fn maybe_expand_home_directory_skips_lookup_for_non_tilde_paths() {
+        let path = test_path_buf("/tmp/codex-home/plugins/cache");
+        let expanded = AbsolutePathBuf::maybe_expand_home_directory_with(path.as_path(), || {
+            panic!("non-tilde paths should not trigger home directory lookup")
+        });
+        assert_eq!(expanded, path);
+    }
+
+    #[test]
+    fn maybe_expand_home_directory_expands_tilde_prefix() {
+        let home = test_path_buf("/Users/tester");
+        let expanded =
+            AbsolutePathBuf::maybe_expand_home_directory_with(Path::new("~/project"), || {
+                Some(home.clone())
+            });
+        assert_eq!(expanded, home.join("project"));
     }
 
     #[test]
