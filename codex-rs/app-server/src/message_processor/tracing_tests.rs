@@ -48,8 +48,6 @@ use opentelemetry_sdk::trace::SpanData;
 use pretty_assertions::assert_eq;
 use serial_test::serial;
 use std::collections::BTreeMap;
-#[cfg(windows)]
-use std::future::Future;
 use std::path::Path;
 use std::sync::Arc;
 use std::sync::OnceLock;
@@ -59,25 +57,6 @@ use tracing_subscriber::layer::SubscriberExt;
 use wiremock::MockServer;
 
 const TEST_CONNECTION_ID: ConnectionId = ConnectionId(7);
-
-#[cfg(windows)]
-fn run_current_thread_test_on_large_stack<F>(test: F) -> Result<()>
-where
-    F: Future<Output = Result<()>> + Send + 'static,
-{
-    std::thread::Builder::new()
-        .stack_size(8 * 1024 * 1024)
-        .spawn(|| {
-            tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-                .expect("test runtime should build")
-                .block_on(test)
-        })
-        .expect("test thread should spawn")
-        .join()
-        .expect("test thread should not panic")
-}
 
 struct TestTracing {
     exporter: InMemorySpanExporter,
@@ -589,23 +568,9 @@ where
     spans.into_iter().skip(baseline_len).collect()
 }
 
-#[cfg(not(windows))]
 #[tokio::test(flavor = "current_thread")]
 #[serial(app_server_tracing)]
 async fn thread_start_jsonrpc_span_exports_server_span_and_parents_children() -> Result<()> {
-    thread_start_jsonrpc_span_exports_server_span_and_parents_children_impl().await
-}
-
-#[cfg(windows)]
-#[test]
-#[serial(app_server_tracing)]
-fn thread_start_jsonrpc_span_exports_server_span_and_parents_children() -> Result<()> {
-    run_current_thread_test_on_large_stack(
-        thread_start_jsonrpc_span_exports_server_span_and_parents_children_impl(),
-    )
-}
-
-async fn thread_start_jsonrpc_span_exports_server_span_and_parents_children_impl() -> Result<()> {
     let mut harness = TracingHarness::new().await?;
 
     let RemoteTrace {
@@ -682,21 +647,9 @@ async fn thread_start_jsonrpc_span_exports_server_span_and_parents_children_impl
     Ok(())
 }
 
-#[cfg(not(windows))]
 #[tokio::test(flavor = "current_thread")]
 #[serial(app_server_tracing)]
 async fn remote_control_origin_rejects_device_key_requests() -> Result<()> {
-    remote_control_origin_rejects_device_key_requests_impl().await
-}
-
-#[cfg(windows)]
-#[test]
-#[serial(app_server_tracing)]
-fn remote_control_origin_rejects_device_key_requests() -> Result<()> {
-    run_current_thread_test_on_large_stack(remote_control_origin_rejects_device_key_requests_impl())
-}
-
-async fn remote_control_origin_rejects_device_key_requests_impl() -> Result<()> {
     let mut harness = TracingHarness::new_with_origin(ConnectionOrigin::RemoteControl).await?;
 
     let error = harness
@@ -735,21 +688,9 @@ async fn remote_control_origin_rejects_device_key_requests_impl() -> Result<()> 
     Ok(())
 }
 
-#[cfg(not(windows))]
 #[tokio::test(flavor = "current_thread")]
 #[serial(app_server_tracing)]
 async fn turn_start_jsonrpc_span_parents_core_turn_spans() -> Result<()> {
-    turn_start_jsonrpc_span_parents_core_turn_spans_impl().await
-}
-
-#[cfg(windows)]
-#[test]
-#[serial(app_server_tracing)]
-fn turn_start_jsonrpc_span_parents_core_turn_spans() -> Result<()> {
-    run_current_thread_test_on_large_stack(turn_start_jsonrpc_span_parents_core_turn_spans_impl())
-}
-
-async fn turn_start_jsonrpc_span_parents_core_turn_spans_impl() -> Result<()> {
     let mut harness = TracingHarness::new().await?;
     let thread_start_response = harness.start_thread(/*request_id*/ 2, /*trace*/ None).await;
     let thread_id = thread_start_response.thread.id.clone();

@@ -128,7 +128,6 @@ use opentelemetry_sdk::metrics::data::MetricData;
 use opentelemetry_sdk::metrics::data::ResourceMetrics;
 use std::path::Path;
 use std::time::Duration;
-use tokio::sync::OnceCell;
 use tokio::sync::Semaphore;
 use tokio::time::sleep;
 use tokio::time::timeout;
@@ -1674,8 +1673,11 @@ async fn record_initial_history_forked_hydrates_previous_turn_settings() {
 
 #[tokio::test]
 async fn thread_rollback_drops_last_turn_from_history() {
-    let (sess, tc, rx) = make_session_and_context_with_rx().await;
-    let rollout_path = attach_thread_persistence(&sess).await;
+    let (mut sess, tc, rx) = make_session_and_context_with_rx().await;
+    let rollout_path = attach_thread_persistence(
+        Arc::get_mut(&mut sess).expect("session should not have additional references"),
+    )
+    .await;
 
     let initial_context = sess.build_initial_context(tc.as_ref()).await;
     let turn_1 = vec![
@@ -1738,8 +1740,11 @@ async fn thread_rollback_drops_last_turn_from_history() {
 
 #[tokio::test]
 async fn thread_rollback_clears_history_when_num_turns_exceeds_existing_turns() {
-    let (sess, tc, rx) = make_session_and_context_with_rx().await;
-    attach_thread_persistence(&sess).await;
+    let (mut sess, tc, rx) = make_session_and_context_with_rx().await;
+    attach_thread_persistence(
+        Arc::get_mut(&mut sess).expect("session should not have additional references"),
+    )
+    .await;
 
     let initial_context = sess.build_initial_context(tc.as_ref()).await;
     let turn_1 = vec![user_message("turn 1 user")];
@@ -1787,8 +1792,11 @@ async fn thread_rollback_fails_without_persisted_thread_history() {
 
 #[tokio::test]
 async fn thread_rollback_recomputes_previous_turn_settings_and_reference_context_from_replay() {
-    let (sess, tc, rx) = make_session_and_context_with_rx().await;
-    attach_thread_persistence(&sess).await;
+    let (mut sess, tc, rx) = make_session_and_context_with_rx().await;
+    attach_thread_persistence(
+        Arc::get_mut(&mut sess).expect("session should not have additional references"),
+    )
+    .await;
 
     let first_context_item = tc.to_turn_context_item();
     let first_turn_id = first_context_item
@@ -1898,8 +1906,11 @@ async fn thread_rollback_recomputes_previous_turn_settings_and_reference_context
 
 #[tokio::test]
 async fn thread_rollback_restores_cleared_reference_context_item_after_compaction() {
-    let (sess, tc, rx) = make_session_and_context_with_rx().await;
-    attach_thread_persistence(&sess).await;
+    let (mut sess, tc, rx) = make_session_and_context_with_rx().await;
+    attach_thread_persistence(
+        Arc::get_mut(&mut sess).expect("session should not have additional references"),
+    )
+    .await;
 
     let first_context_item = tc.to_turn_context_item();
     let first_turn_id = first_context_item
@@ -2003,8 +2014,11 @@ async fn thread_rollback_restores_cleared_reference_context_item_after_compactio
 
 #[tokio::test]
 async fn thread_rollback_persists_marker_and_replays_cumulatively() {
-    let (sess, tc, rx) = make_session_and_context_with_rx().await;
-    let rollout_path = attach_thread_persistence(&sess).await;
+    let (mut sess, tc, rx) = make_session_and_context_with_rx().await;
+    let rollout_path = attach_thread_persistence(
+        Arc::get_mut(&mut sess).expect("session should not have additional references"),
+    )
+    .await;
     let turn_context_item = tc.to_turn_context_item();
 
     sess.persist_rollout_items(&[
@@ -2549,7 +2563,7 @@ async fn wait_for_thread_rollback_failed(rx: &async_channel::Receiver<Event>) ->
     }
 }
 
-async fn attach_thread_persistence(session: &Session) -> PathBuf {
+async fn attach_thread_persistence(session: &mut Session) -> PathBuf {
     let live_thread = LiveThread::create(
         Arc::clone(&session.services.thread_store),
         CreateThreadParams {
@@ -2563,12 +2577,7 @@ async fn attach_thread_persistence(session: &Session) -> PathBuf {
     )
     .await
     .expect("create thread persistence");
-    session
-        .services
-        .live_thread
-        .set(live_thread)
-        .map_err(|_| ())
-        .expect("attach live thread persistence");
+    session.services.live_thread = Some(live_thread);
     session.ensure_rollout_materialized().await;
     session
         .flush_rollout()
@@ -3155,7 +3164,7 @@ pub(crate) async fn make_session_and_context() -> (Session, TurnContext) {
         network_proxy: None,
         network_approval: Arc::clone(&network_approval),
         state_db: None,
-        live_thread: OnceCell::new(),
+        live_thread: None,
         thread_store: Arc::new(codex_thread_store::LocalThreadStore::new(
             codex_rollout::RolloutConfig::from_view(config.as_ref()),
         )),
@@ -4403,7 +4412,7 @@ pub(crate) async fn make_session_and_context_with_dynamic_tools_and_rx(
         network_proxy: None,
         network_approval: Arc::clone(&network_approval),
         state_db: None,
-        live_thread: OnceCell::new(),
+        live_thread: None,
         thread_store: Arc::new(codex_thread_store::LocalThreadStore::new(
             codex_rollout::RolloutConfig::from_view(config.as_ref()),
         )),
@@ -5292,7 +5301,7 @@ async fn record_context_updates_and_set_reference_context_item_reinjects_full_co
 #[tokio::test]
 async fn record_context_updates_and_set_reference_context_item_persists_baseline_without_emitting_diffs()
  {
-    let (session, previous_context) = make_session_and_context().await;
+    let (mut session, previous_context) = make_session_and_context().await;
     let next_model = if previous_context.model_info.slug == "gpt-5.4" {
         "gpt-5.2"
     } else {
@@ -5306,7 +5315,7 @@ async fn record_context_updates_and_set_reference_context_item_persists_baseline
         let mut state = session.state.lock().await;
         state.set_reference_context_item(Some(previous_context_item.clone()));
     }
-    let rollout_path = attach_thread_persistence(&session).await;
+    let rollout_path = attach_thread_persistence(&mut session).await;
 
     let update_items = session
         .build_settings_update_items(Some(&previous_context_item), &turn_context)
@@ -5351,10 +5360,10 @@ async fn record_context_updates_and_set_reference_context_item_persists_baseline
 #[tokio::test]
 async fn record_context_updates_and_set_reference_context_item_persists_split_file_system_policy_to_rollout()
  {
-    let (session, mut turn_context) = make_session_and_context().await;
+    let (mut session, mut turn_context) = make_session_and_context().await;
     let file_system_sandbox_policy = file_system_policy_with_unreadable_glob(&turn_context);
     turn_context.file_system_sandbox_policy = file_system_sandbox_policy.clone();
-    let rollout_path = attach_thread_persistence(&session).await;
+    let rollout_path = attach_thread_persistence(&mut session).await;
 
     session
         .record_context_updates_and_set_reference_context_item(&turn_context)
@@ -5404,7 +5413,7 @@ async fn build_initial_context_prepends_model_switch_message() {
 #[tokio::test]
 async fn record_context_updates_and_set_reference_context_item_persists_full_reinjection_to_rollout()
  {
-    let (session, previous_context) = make_session_and_context().await;
+    let (mut session, previous_context) = make_session_and_context().await;
     let next_model = if previous_context.model_info.slug == "gpt-5.4" {
         "gpt-5.2"
     } else {
@@ -5413,7 +5422,7 @@ async fn record_context_updates_and_set_reference_context_item_persists_full_rei
     let turn_context = previous_context
         .with_model(next_model.to_string(), &session.services.models_manager)
         .await;
-    let rollout_path = attach_thread_persistence(&session).await;
+    let rollout_path = attach_thread_persistence(&mut session).await;
 
     session
         .persist_rollout_items(&[RolloutItem::EventMsg(EventMsg::UserMessage(
