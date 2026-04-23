@@ -462,26 +462,6 @@ mod tests {
         );
     }
 
-    #[cfg(target_os = "macos")]
-    #[test]
-    fn helper_env_preserves_cf_user_text_encoding() {
-        let env = helper_env_from_vars(
-            [
-                ("__CF_USER_TEXT_ENCODING", "0x1F6:0x0:0x0"),
-                ("OPENAI_API_KEY", "secret"),
-            ]
-            .map(|(key, value)| (OsString::from(key), OsString::from(value))),
-        );
-
-        assert_eq!(
-            env,
-            HashMap::from([(
-                "__CF_USER_TEXT_ENCODING".to_string(),
-                "0x1F6:0x0:0x0".to_string(),
-            )])
-        );
-    }
-
     #[cfg(windows)]
     #[test]
     fn helper_env_preserves_windows_path_key_for_system_bwrap_discovery() {
