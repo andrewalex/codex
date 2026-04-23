@@ -30,7 +30,8 @@ use crate::local_file_system::current_sandbox_cwd;
 use crate::rpc::internal_error;
 use crate::rpc::invalid_request;
 
-const FS_HELPER_ENV_ALLOWLIST: &[&str] = &["PATH", "TMPDIR", "TMP", "TEMP"];
+const FS_HELPER_ENV_ALLOWLIST: &[&str] =
+    &["PATH", "TMPDIR", "TMP", "TEMP", "__CF_USER_TEXT_ENCODING"];
 
 #[derive(Clone, Debug)]
 pub(crate) struct FileSystemSandboxRunner {
@@ -458,6 +459,26 @@ mod tests {
                 ("TMP".to_string(), "/tmp".to_string()),
                 ("TEMP".to_string(), "/tmp".to_string()),
             ])
+        );
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn helper_env_preserves_cf_user_text_encoding() {
+        let env = helper_env_from_vars(
+            [
+                ("__CF_USER_TEXT_ENCODING", "0x1F6:0x0:0x0"),
+                ("OPENAI_API_KEY", "secret"),
+            ]
+            .map(|(key, value)| (OsString::from(key), OsString::from(value))),
+        );
+
+        assert_eq!(
+            env,
+            HashMap::from([(
+                "__CF_USER_TEXT_ENCODING".to_string(),
+                "0x1F6:0x0:0x0".to_string(),
+            )])
         );
     }
 
